@@ -1,8 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { toast } from 'sonner';
 
 interface ChecklistItem {
   id: string;
@@ -28,6 +32,8 @@ const Index = () => {
   ]);
 
   const [history, setHistory] = useState<DayHistory[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem(STORAGE_KEY);
@@ -100,9 +106,64 @@ const Index = () => {
 
   const averageCompletion = weekData.reduce((sum, day) => sum + day.percentage, 0) / 7;
 
+  const exportToPDF = async () => {
+    if (!contentRef.current) return;
+    
+    setIsExporting(true);
+    toast.loading('Создаю PDF...');
+    
+    try {
+      const canvas = await html2canvas(contentRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#fafafa'
+      });
+      
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const imgX = (pdfWidth - imgWidth * ratio) / 2;
+      const imgY = 0;
+      
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+      
+      const fileName = `pamyatka-gipotireoz-${new Date().toLocaleDateString('ru-RU').replace(/\./g, '-')}.pdf`;
+      pdf.save(fileName);
+      
+      toast.success('PDF успешно создан!');
+    } catch (error) {
+      console.error('Ошибка при создании PDF:', error);
+      toast.error('Не удалось создать PDF');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-8">
+        <div className="fixed top-4 right-4 z-50">
+          <Button
+            onClick={exportToPDF}
+            disabled={isExporting}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg"
+            size="lg"
+          >
+            <Icon name="Download" className="mr-2" size={20} />
+            {isExporting ? 'Создание PDF...' : 'Скачать PDF'}
+          </Button>
+        </div>
+        <div ref={contentRef}>
         <header className="text-center space-y-4 animate-fade-in">
           <Badge className="bg-primary text-primary-foreground text-sm px-4 py-1.5">
             Памятка для родственников
@@ -360,6 +421,7 @@ const Index = () => {
         <footer className="text-center text-muted-foreground text-sm py-4">
           <p>Консультируйтесь с врачом-эндокринологом для индивидуальных рекомендаций</p>
         </footer>
+        </div>
       </div>
     </div>
   );

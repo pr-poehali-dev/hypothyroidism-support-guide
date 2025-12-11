@@ -36,9 +36,25 @@ const Index = () => {
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const savedHistory = localStorage.getItem(STORAGE_KEY);
-    if (savedHistory) {
-      setHistory(JSON.parse(savedHistory));
+    const params = new URLSearchParams(window.location.search);
+    const sharedData = params.get('data');
+    
+    if (sharedData) {
+      try {
+        const decodedData = JSON.parse(atob(sharedData));
+        setHistory(decodedData);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(decodedData));
+        toast.success('Данные загружены из ссылки');
+        window.history.replaceState({}, '', window.location.pathname);
+      } catch (error) {
+        console.error('Ошибка загрузки данных:', error);
+        toast.error('Не удалось загрузить данные из ссылки');
+      }
+    } else {
+      const savedHistory = localStorage.getItem(STORAGE_KEY);
+      if (savedHistory) {
+        setHistory(JSON.parse(savedHistory));
+      }
     }
   }, []);
 
@@ -106,6 +122,30 @@ const Index = () => {
 
   const averageCompletion = weekData.reduce((sum, day) => sum + day.percentage, 0) / 7;
 
+  const shareData = async () => {
+    try {
+      const dataToShare = btoa(JSON.stringify(history));
+      const shareUrl = `${window.location.origin}${window.location.pathname}?data=${dataToShare}`;
+      
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Памятка: Гипотиреоз',
+          text: 'История наблюдений за пациентом с гипотиреозом',
+          url: shareUrl
+        });
+        toast.success('Ссылка успешно отправлена!');
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        toast.success('Ссылка скопирована в буфер обмена!');
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Ошибка при создании ссылки:', error);
+        toast.error('Не удалось создать ссылку');
+      }
+    }
+  };
+
   const exportToPDF = async () => {
     if (!contentRef.current) return;
     
@@ -152,7 +192,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-8">
-        <div className="fixed top-4 right-4 z-50">
+        <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
           <Button
             onClick={exportToPDF}
             disabled={isExporting}
@@ -161,6 +201,16 @@ const Index = () => {
           >
             <Icon name="Download" className="mr-2" size={20} />
             {isExporting ? 'Создание PDF...' : 'Скачать PDF'}
+          </Button>
+          <Button
+            onClick={shareData}
+            disabled={history.length === 0}
+            variant="secondary"
+            className="shadow-lg"
+            size="lg"
+          >
+            <Icon name="Share2" className="mr-2" size={20} />
+            Поделиться
           </Button>
         </div>
         <div ref={contentRef}>

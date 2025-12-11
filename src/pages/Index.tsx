@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,14 @@ interface ChecklistItem {
   checked: boolean;
 }
 
+interface DayHistory {
+  date: string;
+  completedCount: number;
+  totalCount: number;
+}
+
+const STORAGE_KEY = 'hypothyroid-checklist-history';
+
 const Index = () => {
   const [checklist, setChecklist] = useState<ChecklistItem[]>([
     { id: 'pill', label: 'Таблетка принята утром натощак', checked: false },
@@ -18,6 +26,20 @@ const Index = () => {
     { id: 'noSwelling', label: 'Нет новых отеков', checked: false },
     { id: 'normalTemp', label: 'Не жалуется на холод', checked: false },
   ]);
+
+  const [history, setHistory] = useState<DayHistory[]>([]);
+
+  useEffect(() => {
+    const savedHistory = localStorage.getItem(STORAGE_KEY);
+    if (savedHistory) {
+      setHistory(JSON.parse(savedHistory));
+    }
+  }, []);
+
+  const saveHistory = (newHistory: DayHistory[]) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
+    setHistory(newHistory);
+  };
 
   const handleChecklistToggle = (id: string) => {
     setChecklist(prev =>
@@ -28,11 +50,55 @@ const Index = () => {
   };
 
   const resetChecklist = () => {
+    const completedCount = checklist.filter(item => item.checked).length;
+    const today = new Date().toLocaleDateString('ru-RU');
+    
+    const existingDayIndex = history.findIndex(day => day.date === today);
+    let newHistory: DayHistory[];
+    
+    if (existingDayIndex >= 0) {
+      newHistory = [...history];
+      newHistory[existingDayIndex] = {
+        date: today,
+        completedCount,
+        totalCount: checklist.length
+      };
+    } else {
+      newHistory = [
+        ...history,
+        {
+          date: today,
+          completedCount,
+          totalCount: checklist.length
+        }
+      ].slice(-7);
+    }
+    
+    saveHistory(newHistory);
     setChecklist(prev => prev.map(item => ({ ...item, checked: false })));
   };
 
   const completedCount = checklist.filter(item => item.checked).length;
   const progress = (completedCount / checklist.length) * 100;
+
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - i));
+    return date.toLocaleDateString('ru-RU');
+  });
+
+  const weekData = last7Days.map(date => {
+    const dayData = history.find(h => h.date === date);
+    return {
+      date,
+      shortDate: date.split('.')[0] + '.' + date.split('.')[1],
+      percentage: dayData ? Math.round((dayData.completedCount / dayData.totalCount) * 100) : 0,
+      completed: dayData?.completedCount || 0,
+      total: dayData?.totalCount || 0
+    };
+  });
+
+  const averageCompletion = weekData.reduce((sum, day) => sum + day.percentage, 0) / 7;
 
   return (
     <div className="min-h-screen bg-background py-8 px-4 sm:px-6 lg:px-8">
@@ -169,6 +235,61 @@ const Index = () => {
           </div>
         </section>
 
+        <Card className="border-2 border-secondary/30 bg-gradient-to-br from-secondary/5 to-primary/5 animate-fade-in">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3 text-2xl">
+              <Icon name="TrendingUp" className="text-secondary" size={28} />
+              ПРОГРЕСС ЗА НЕДЕЛЮ
+            </CardTitle>
+            <p className="text-muted-foreground mt-2">
+              История выполнения за последние 7 дней
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-end justify-between gap-2 h-48">
+              {weekData.map((day, index) => (
+                <div key={index} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="flex-1 w-full flex items-end">
+                    <div
+                      className="w-full bg-gradient-to-t from-primary to-secondary rounded-t-lg transition-all duration-500 hover:opacity-80 relative group"
+                      style={{ height: `${day.percentage}%` }}
+                    >
+                      <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-foreground text-background text-xs px-2 py-1 rounded whitespace-nowrap">
+                        {day.completed}/{day.total}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground font-medium">
+                    {day.shortDate}
+                  </div>
+                  <div className="text-xs font-bold text-foreground">
+                    {day.percentage}%
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+              <div className="text-center p-4 bg-primary/10 rounded-lg">
+                <div className="text-3xl font-bold text-primary">
+                  {Math.round(averageCompletion)}%
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Средний показатель
+                </div>
+              </div>
+              <div className="text-center p-4 bg-secondary/10 rounded-lg">
+                <div className="text-3xl font-bold text-secondary">
+                  {history.length}
+                </div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  Дней отслеживания
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-secondary/5 animate-fade-in">
           <CardHeader>
             <CardTitle className="flex items-center gap-3 text-2xl">
@@ -219,10 +340,10 @@ const Index = () => {
             ))}
             <button
               onClick={resetChecklist}
-              className="w-full mt-4 py-3 px-4 bg-muted hover:bg-muted/80 text-foreground rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+              className="w-full mt-4 py-3 px-4 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
             >
-              <Icon name="RotateCcw" size={20} />
-              Сбросить на новый день
+              <Icon name="Save" size={20} />
+              Сохранить результаты дня
             </button>
           </CardContent>
         </Card>

@@ -123,26 +123,48 @@ const Index = () => {
   const averageCompletion = weekData.reduce((sum, day) => sum + day.percentage, 0) / 7;
 
   const shareData = async () => {
+    if (history.length === 0) {
+      toast.error('Нет данных для отправки. Сначала сохраните хотя бы один день!');
+      return;
+    }
+    
     try {
       const dataToShare = btoa(JSON.stringify(history));
       const shareUrl = `${window.location.origin}${window.location.pathname}?data=${dataToShare}`;
       
-      if (navigator.share) {
-        await navigator.share({
-          title: 'Памятка: Гипотиреоз',
-          text: 'История наблюдений за пациентом с гипотиреозом',
-          url: shareUrl
-        });
-        toast.success('Ссылка успешно отправлена!');
+      if (navigator.share && navigator.canShare) {
+        try {
+          await navigator.share({
+            title: 'Памятка: Гипотиреоз',
+            text: 'История наблюдений за пациентом с гипотиреозом',
+            url: shareUrl
+          });
+          toast.success('Ссылка успешно отправлена!');
+        } catch (shareError) {
+          if ((shareError as Error).name === 'AbortError') {
+            return;
+          }
+          throw shareError;
+        }
       } else {
-        await navigator.clipboard.writeText(shareUrl);
-        toast.success('Ссылка скопирована в буфер обмена!');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+          toast.success('Ссылка скопирована в буфер обмена!');
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = shareUrl;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          toast.success('Ссылка скопирована!');
+        }
       }
     } catch (error) {
-      if ((error as Error).name !== 'AbortError') {
-        console.error('Ошибка при создании ссылки:', error);
-        toast.error('Не удалось создать ссылку');
-      }
+      console.error('Ошибка при создании ссылки:', error);
+      toast.error('Не удалось создать ссылку');
     }
   };
 
@@ -150,14 +172,25 @@ const Index = () => {
     if (!contentRef.current) return;
     
     setIsExporting(true);
-    toast.loading('Создаю PDF...');
+    const loadingToast = toast.loading('Создаю PDF...');
     
     try {
-      const canvas = await html2canvas(contentRef.current, {
+      const element = contentRef.current;
+      const gradients = element.querySelectorAll('[style*="gradient"]');
+      gradients.forEach((el) => {
+        const htmlEl = el as HTMLElement;
+        const computedStyle = window.getComputedStyle(htmlEl);
+        htmlEl.style.background = computedStyle.backgroundColor || '#fafafa';
+      });
+      
+      const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#fafafa'
+        backgroundColor: '#fafafa',
+        ignoreElements: (el) => {
+          return el.tagName === 'BUTTON' && el.closest('.fixed');
+        }
       });
       
       const imgData = canvas.toDataURL('image/png');
@@ -180,12 +213,15 @@ const Index = () => {
       const fileName = `pamyatka-gipotireoz-${new Date().toLocaleDateString('ru-RU').replace(/\./g, '-')}.pdf`;
       pdf.save(fileName);
       
+      toast.dismiss(loadingToast);
       toast.success('PDF успешно создан!');
     } catch (error) {
       console.error('Ошибка при создании PDF:', error);
+      toast.dismiss(loadingToast);
       toast.error('Не удалось создать PDF');
     } finally {
       setIsExporting(false);
+      window.location.reload();
     }
   };
 
